@@ -1,6 +1,7 @@
 (ns leiningen.uberjar
   "Create a jar containing the compiled code, source, and all dependencies."
-  (:require [clojure.xml :as xml])
+  (:require [clojure.xml :as xml]
+            [clojure.contrib.str-utils2 :as s])
   (:use [clojure.zip :only [xml-zip]]
         [clojure.contrib.java-utils :only [file]]
         [clojure.contrib.duck-streams :only [copy]]
@@ -38,19 +39,26 @@
     [(into skip-set (copy-entries zipfile out #(skip-set (.getName %))))
      (concat components (read-components zipfile))]))
 
-(defn uberjar
-  "Create a jar like the jar task, but including the contents of each of
-the dependency jars. Suitable for standalone distribution. Note that this
-will include all jars in lib, so if you have dev dependencies in there, you
-may wish to clean first."
-  [project]
+
+(defn dep-jar-regex
+  "Given dependency as vector of symbol ('org.clojure/clojure) & version, return 
+  regex that matches its jar."
+  [[dep-sym version]]
+  (let [artifact  (second (s/split (str dep-sym) #"/"))
+        version   (s/replace version "SNAPSHOT" "\\d{8}\\.[\\d-]+")]
+    (re-pattern (str artifact "-" version "\\.jar"))))
+
+(defn uberjar*
+  "Create a jar like the jar task, but include the contents of each of
+   the dependency jars, minus those jars that satisfy the exclude? predicate."
+  [project exclude?]
   (jar project)
   (with-open [out (-> (file (:root project)
                             (str (:name project) "-standalone.jar"))
                       (FileOutputStream.) (ZipOutputStream.))]
-    ;; TODO: any way to make sure we skip dev dependencies?
     (let [deps (->> (file-seq (file (:library-path project)))
                     (filter #(.endsWith (.getName %) ".jar"))
+                    (remove exclude?)
                     (cons (file (:root project) (str (:name project) ".jar"))))
           [_ components] (reduce (partial include-dep out)
                                  [#{"META-INF/plexus/components.xml"} nil]
@@ -65,3 +73,13 @@ may wish to clean first."
                        components}]})
           (.flush *out*))
         (.closeEntry out)))))
+
+
+(defn uberjar
+  "Create a jar like the jar task, but including the contents of each of
+the dependency jars. Suitable for standalone distribution."
+  [project]
+  (let [dev-regexes (map dep-jar-regex (:dev-dependencies project))
+        exclude?    (fn [jar] (some #(re-find % (.getName jar)) dev-regexes))]
+    (uberjar* project exclude?)))
+
