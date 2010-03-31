@@ -6,6 +6,7 @@
         [clojure.contrib.str-utils :only [str-join re-sub]]
         [clojure.contrib.java-utils :only [file]])
   (:import [java.util.jar Manifest JarEntry JarOutputStream]
+           [java.util.regex Pattern]
            [java.io BufferedOutputStream FileOutputStream
             ByteArrayInputStream]))
 
@@ -19,22 +20,34 @@
                       (str "Built-By: " (System/getProperty "user.name"))
                       (str "Build-Jdk: " (System/getProperty "java.version"))
                       (when-let [main (:main project)]
-                        (str "Main-Class: " main))])
+                        (str "Main-Class: " (.replaceAll (str main) "-" "_")))])
            "\n")))))
+
+(defn unix-path [path]
+  (.replaceAll path "\\\\" "/"))
+
+(defn skip-file? [file]
+  (or (.isDirectory file)
+      (re-find #"^\.?#" (.getName file))
+      (re-find #"~$" (.getName file))))
 
 (defmulti copy-to-jar (fn [project jar-os spec] (:type spec)))
 
+(defn- trim-leading-str [s to-trim]
+  (re-sub (re-pattern (str "^" (Pattern/quote to-trim))) "" s))
+
 (defmethod copy-to-jar :path [project jar-os spec]
+  (let [root (str (unix-path (:root project)) \/)
+        noroot  #(trim-leading-str (unix-path %) root)
+        [resources classes src]
+        (map noroot (map project [:resources-path :compile-path :source-path]))]
   (doseq [child (file-seq (file (:path spec)))]
-    (when-not (.isDirectory child)
-      (let [path (str child)
-            path (re-sub (re-pattern (str "^" (:root project))) "" path)
-            path (re-sub #"^/resources" "" path)
-            path (re-sub #"^/classes" "" path)
-            path (re-sub #"^/src" "" path)
-            path (re-sub #"^/" "" path)]
-        (.putNextEntry jar-os (JarEntry. path))
-        (copy child jar-os)))))
+    (when-not (skip-file? child)
+      (let [path (reduce trim-leading-str (unix-path (str child))
+                         [root resources classes src "/"])]
+        (.putNextEntry jar-os (doto (JarEntry. path)
+                                (.setTime (.lastModified child))))
+        (copy child jar-os))))))
 
 (defmethod copy-to-jar :bytes [project jar-os spec]
   (.putNextEntry jar-os (JarEntry. (:path spec)))
@@ -73,7 +86,7 @@ as the main-class for an executable jar."
                       {:type :path :path (:compile-path project)}
                       {:type :path :path (:source-path project)}
                       {:type :path :path (str (:root project) "/project.clj")}]]
-       ;; TODO: support slim, etc
        (write-jar project jar-file filespecs)
+       (println "Created" jar-file)
        jar-file))
   ([project] (jar project (str (:name project) ".jar"))))

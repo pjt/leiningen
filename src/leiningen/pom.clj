@@ -3,7 +3,8 @@
   (:use [clojure.contrib.duck-streams :only [reader copy]]
         [clojure.contrib.java-utils :only [file as-properties]])
   (:import [java.io StringWriter ByteArrayOutputStream]
-           [org.apache.maven.model Model Parent Dependency Repository Scm]
+           [org.apache.maven.model Build Model Parent Dependency
+            Exclusion Repository Scm]
            [org.apache.maven.project MavenProject]))
 
 (def #^{:doc "A notice to place at the bottom of generated files."} disclaimer
@@ -69,11 +70,19 @@
    (catch java.io.FileNotFoundException e
      nil)))
 
-(defn make-dependency [[dep version]]
-  (doto (Dependency.)
-    (.setGroupId (or (namespace dep) (name dep)))
-    (.setArtifactId (name dep))
-    (.setVersion version)))
+(defn make-exclusion [excl]
+  (doto (Exclusion.)
+    (.setGroupId (or (namespace excl) (name excl)))
+    (.setArtifactId (name excl))))
+
+(defn make-dependency [[dep version & exclusions]]
+  (let [es (map make-exclusion (when (= (first exclusions) :exclusions) 
+                                 (second exclusions)))]
+    (doto (Dependency.)
+            (.setGroupId (or (namespace dep) (name dep)))
+            (.setArtifactId (name dep))
+            (.setVersion version)
+            (.setExclusions es))))
 
 (defn make-repository [[id url]]
   (doto (Repository.)
@@ -81,8 +90,13 @@
     (.setUrl url)))
 
 (def default-repos {"central" "http://repo1.maven.org/maven2"
+                    "clojure" "http://build.clojure.org/releases"
                     "clojure-snapshots" "http://build.clojure.org/snapshots"
                     "clojars" "http://clojars.org/repo/"})
+
+(defn relative-path
+  [project path-key]
+  (.replace (path-key project) (str (:root project) "/") ""))
 
 (defn make-model [project]
   (let [model (doto (Model.)
@@ -91,7 +105,11 @@
                 (.setName (:name project))
                 (.setVersion (:version project))
                 (.setGroupId (:group project))
-                (.setDescription (:description project)))]
+                (.setDescription (:description project)))
+        build (doto (Build.)
+                (.setSourceDirectory (relative-path project :source-path))
+                (.setTestSourceDirectory (relative-path project :test-path)))]
+    (.setBuild model build)
     ;; TODO: add leiningen as a test-scoped dependency
     (doseq [dep (:dependencies project)]
       (.addDependency model (make-dependency dep)))

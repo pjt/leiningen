@@ -26,12 +26,20 @@ rather than copying and pasting among each of your projects.
 
 ## Installation
 
-1. Download the script: http://github.com/technomancy/leiningen/raw/stable/bin/lein
+Leiningen bootstraps itself using the 'lein' shell script you
+download, there is no separate 'install script'. It installs its
+dependencies in $HOME/.m2/repository.
+
+1. [Download the script](http://github.com/technomancy/leiningen/raw/stable/bin/lein).
 2. Place it on your path and chmod it to be executable.
 3. Run: <tt>lein self-install</tt>
 
 This only works with stable versions of Leiningen; for development
 versions see "Hacking" below.
+
+On Windows you can download
+[lein.bat](http://github.com/technomancy/leiningen/raw/stable/bin/lein.bat),
+instead, though support on that platform is still experimental.
 
 ## Usage
 
@@ -59,7 +67,7 @@ versions see "Hacking" below.
 
 ## Configuration
 
-Place a project.clj file in the project root that looks something like this: 
+Place a project.clj file in the project root that looks something like this:
 
     (defproject leiningen "0.5.0-SNAPSHOT"
       :description "A build tool designed not to set your hair on fire."
@@ -72,10 +80,10 @@ Place a project.clj file in the project root that looks something like this:
 
 Other keys accepted:
 
-* :namespaces - if set, only AOT-compile namespaces listed here rather
-  than all namespaces found in src/ directory.
+* :namespaces - a list of namespaces on which to perform AOT-compilation.
 * :main - specify a namespace to use as main for an executable jar.
 * :repositories - additional maven repositories to search for dependencies.
+  Specify this as a map of repo IDs to URLs.
 * :source-path, :compile-path, :library-path, :test-path, :resources-path -
   alternate paths for src/, classes/, lib/, resources/, and test/ directories.
 
@@ -104,6 +112,11 @@ Other keys accepted:
    functions and are able to write it with a more pleasing syntax, it's
    not bad.
 
+**Q:** What's a group ID? How do snapshots work?  
+**A:** See the
+  [intro](http://github.com/technomancy/leiningen/blob/master/INTRO.md)
+  for background on JVM dependency concepts.
+
 **Q:** What if my project depends on jars that aren't in any repository?  
 **A:** Open-source jars can be uploaded to Clojars (see "Publishing"
   below), though be sure to use the groupId of "org.clojars.$USERNAME"
@@ -112,6 +125,36 @@ Other keys accepted:
   Alternatively you can install into your local repository in ~/.m2
   with Maven for Java libs or "lein install" for Clojure libs.
 
+**Q:** What does java.lang.NoSuchMethodError: clojure.lang.RestFn.<init>(I)V mean?  
+**A:** It means you have some code that was AOT (ahead-of-time)
+  compiled with a different version of Clojure than the one you're
+  currently using. If it persists after running "lein clean" then it
+  is a problem with your dependencies. If you depend on contrib, make
+  sure the contrib version matches the Clojure version. Also note for
+  your own project that AOT compilation in Clojure is much less
+  important than it is in other languages. There are a few
+  language-level features that must be AOT-compiled to work, generally
+  for Java interop. If you are not using any of these features, you
+  should not AOT-compile your project if other projects may depend
+  upon it.
+
+**Q:** It looks like the classpath isn't honoring project.clj.  
+**A:** Leiningen runs many things in a subclassloader so it can
+  control the classpath and other things. Because of this, the
+  standard (System/getProperty "java.class.path") call will return the
+  classpath that Leiningen runs in, not the one that your project is
+  run in. Your project's classpath is stored in the user/*classpath* var.
+
+**Q:** Is it possible to exclude indirect dependencies?  
+**A:** Yes.  Some libraries, such as log4j, depend on projects that are
+  not included in public repositories and unnecessary for basic
+  functionality.  Projects listed as :dependencies may exclude 
+  any of their dependencies by using the :exclusions key, as demonstrated here:
+    [log4j "1.2.15" :exclusions [javax.mail/mail
+                                 javax.jms/jms
+                                 com.sun.jdmk/jmxtools
+                                 com.sun.jmx/jmxri]]
+
 **Q:** How should I pick my version numbers?  
 **A:** Use [semantic versioning](http://semver.org).
 
@@ -119,9 +162,6 @@ Other keys accepted:
 **A:** I tried, but I really couldn't make the wine metaphor work. That,
    and the Plexus Classworlds container was an ornery beast causing
    much frustration. The maven-ant-tasks API is much more manageable.
-
-**Q:** What about Windows?  
-**A:** Patches welcome.
 
 ## Publishing
 
@@ -133,8 +173,8 @@ it into Maven central, the easiest way is to publish it at
 for open-source code. Once you have created an account there,
 publishing is easy:
 
-    $ lein pom
-    $ scp pom.xml $PROJECT.jar clojars@clojars.org:
+    $ lein jar
+    $ scp $PROJECT.jar clojars@clojars.org:
 
 Once that succeeds it will be available for other projects to depend
 on. Leiningen adds Clojars and [the Clojure nightly build
@@ -149,8 +189,9 @@ snapshots](http://build.clojure.org) to the default repositories.
   not support clojure.contrib.test-is. This may be added with a plugin
   later.
 
-* Due to a bug in contrib's build, the swank plugin may not work with
-  projects that use Clojure 1.0 and contrib together.
+* See the [issue
+  tracker](http://github.com/technomancy/leiningen/issues) for a more
+  complete list.
 
 ## Hacking
 
@@ -162,7 +203,7 @@ finishes, symlink bin/lein from your checkout to your path.  This will
 make "lein" run from your checkout while "lein-stable" uses the jar
 self-installed in ~/.m2.
 
-The [mailing list](http://groups.google.com/group/clojure) and the
+The [mailing list](http://groups.google.com/group/leiningen) and the
 leiningen or clojure channels on Freenode are the best places to
 bring up questions or suggestions. If you're planning on adding a
 feature or fixing a nontrivial bug, please discuss it first to avoid

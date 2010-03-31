@@ -48,10 +48,10 @@
         (abort "No project.clj found in this directory."))))
   ([] (read-project "project.clj")))
 
-(def aliases {"--help" "help" "-h" "help" "-?" "help"
-              "-v" "version" "--version" "version"})
+(def aliases {"--help" "help" "-h" "help" "-?" "help" "-v" "version"
+              "--version" "version" "überjar" "uberjar"})
 
-(def no-project-needed #{"new" "help" "version"})
+(def no-project-needed (atom #{"new" "help" "version"}))
 
 (defn resolve-task [task]
   (let [task-ns (symbol (str "leiningen." task))
@@ -61,7 +61,8 @@
                     (format "%s is not a task. Use \"help\" to list all tasks."
                              task)))]
     (try
-     (require task-ns)
+     (when-not (find-ns task-ns)
+       (require task-ns))
      (or (ns-resolve task-ns task)
          error-fn)
      (catch java.io.FileNotFoundException e
@@ -69,16 +70,14 @@
 
 (defn -main [& [task & args]]
   (let [task (or (aliases task) task "help")
-        args (if (no-project-needed task)
+        args (if (@no-project-needed task)
                args
                (conj args (read-project)))
         compile-path (:compile-path (first args))]
     (when compile-path (.mkdirs (File. compile-path)))
     (binding [*compile-path* compile-path]
-      (try
-       (apply (resolve-task task) args)
-       (catch IllegalArgumentException _
-         (abort (format "Wrong number of arguments to task %s."
-                        task)))))
+      ;; TODO: can we catch only task-level arity problems here?
+      ;; compare args and (:arglists (meta (resolve-task task)))?
+      (apply (resolve-task task) args))
     ;; In case tests or some other task started any:
     (shutdown-agents)))
